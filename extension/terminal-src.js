@@ -240,8 +240,18 @@ async function main() {
     }
   }
 
-  function buildShareUrl() {
-    const base = httpBase();
+  async function fetchTunnelUrl() {
+    try {
+      const res = await fetch(`${httpBase()}/tunnel?token=${encodeURIComponent(token)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.url;
+    } catch { return null; }
+  }
+
+  async function buildShareUrl() {
+    const tunnel = await fetchTunnelUrl();
+    const base = tunnel || httpBase();
     const params = new URLSearchParams({
       session: currentSessionId,
       token: currentGuestToken,
@@ -250,12 +260,12 @@ async function main() {
   }
 
   if (shareBtn) {
-    shareBtn.addEventListener("click", () => {
-      const url = buildShareUrl();
-      navigator.clipboard.writeText(url).then(() => {
-        shareBtn.textContent = "copied!";
-        setTimeout(() => { shareBtn.textContent = "share"; }, 2000);
-      });
+    shareBtn.addEventListener("click", async () => {
+      shareBtn.textContent = "...";
+      const url = await buildShareUrl();
+      await navigator.clipboard.writeText(url);
+      shareBtn.textContent = "copied!";
+      setTimeout(() => { shareBtn.textContent = "share"; }, 2000);
     });
   }
 

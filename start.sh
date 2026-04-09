@@ -107,17 +107,21 @@ start_tunnel() {
     return 1
   fi
 
-  local token tunnel_host
+  local token
   token=$(cat "$TOKEN_FILE")
-  tunnel_host="${tunnel_url#https://}"
+
+  # Register tunnel URL with the backend
+  curl -sS "http://127.0.0.1:${PORT}/set-tunnel?token=${token}&url=${tunnel_url}" > /dev/null
 
   echo -e "${GREEN}tunnel active${NC}: $tunnel_url"
   echo ""
-  echo -e "Share this to a collaborator:"
-  echo -e "  tunnel host: ${GREEN}${tunnel_host}${NC}"
-  echo -e "  token:       ${GREEN}${token}${NC}"
+  echo -e "To share a session read-only:"
+  echo -e "  1. Open a terminal tab in the extension"
+  echo -e "  2. Click ${GREEN}share${NC} in the status bar → copies a safe read-only URL"
+  echo -e "  3. Send that URL to your collaborator"
   echo ""
-  echo -e "${DIM}They open: terminal.html?host=${tunnel_host} and paste the token${NC}"
+  echo -e "${YELLOW}DO NOT share the owner token or the raw tunnel URL${NC}"
+  echo -e "${DIM}The share button generates a scoped guest token (read-only, one session only)${NC}"
   echo ""
 }
 

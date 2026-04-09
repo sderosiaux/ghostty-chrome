@@ -13,6 +13,7 @@ const STATIC_DIR = resolve(join(__dirname, "..", "extension"));
 
 const PORT = parseInt(process.env.PORT || "7681", 10);
 const AUTH_TOKEN = process.env.GHOSTTY_TOKEN || randomBytes(24).toString("hex");
+let tunnelUrl = process.env.TUNNEL_URL || null;
 
 // Strip sensitive vars from PTY environment
 const { GHOSTTY_TOKEN: _stripped, ...safeEnv } = process.env;
@@ -134,6 +135,25 @@ const server = createServer((req, res) => {
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // Internal: start.sh sets tunnel URL after cloudflared starts
+  if (url.pathname === "/set-tunnel") {
+    const t = url.searchParams.get("token");
+    if (t !== AUTH_TOKEN) { res.writeHead(401); res.end(); return; }
+    tunnelUrl = url.searchParams.get("url") || null;
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
+  // Extension queries this to build share URLs
+  if (url.pathname === "/tunnel") {
+    const t = url.searchParams.get("token");
+    if (t !== AUTH_TOKEN) { res.writeHead(401); res.end(); return; }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ url: tunnelUrl }));
     return;
   }
 
