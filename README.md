@@ -107,10 +107,9 @@ ghostty-chrome/
 - [x] xterm.js + WebGL proof of concept
 - [x] Session persistence and reconnection
 - [x] Ghostty config import (font, colors)
-- [ ] Session picker page (list/attach to running sessions)
+- [ ] Session picker page (list/attach to running sessions — backend API already exists)
 - [ ] launchd daemon for backend auto-start
 - [ ] Catppuccin/custom theme file support
-- [ ] Split panes within a tab
 
 **Phase 2 — libghostty WASM**
 - [ ] Compile libghostty VT parser (Zig → wasm32) and swap out xterm.js parser
