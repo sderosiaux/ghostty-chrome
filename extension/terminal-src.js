@@ -4,20 +4,29 @@ import { WebglAddon } from "@xterm/addon-webgl";
 
 const DEFAULT_HOST = "127.0.0.1:7681";
 const SESSION_KEY_PREFIX = "ghostty_session_";
+const IS_EXTENSION = typeof chrome !== "undefined" && chrome.storage?.local;
 
-// Detect tunnel: ?host=xxx.trycloudflare.com in the URL
+// In web mode: use the page's own host. In extension mode: ?host= param or localhost.
 function getBackendHost() {
+  if (!IS_EXTENSION) {
+    return location.host;
+  }
   const params = new URLSearchParams(location.search);
   return params.get("host") || DEFAULT_HOST;
 }
 
 function httpBase() {
+  if (!IS_EXTENSION) return location.origin;
   const host = getBackendHost();
   const proto = host.includes("trycloudflare.com") || host.includes("ngrok") ? "https" : "http";
   return `${proto}://${host}`;
 }
 
 function wsBase() {
+  if (!IS_EXTENSION) {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${location.host}`;
+  }
   const host = getBackendHost();
   const proto = host.includes("trycloudflare.com") || host.includes("ngrok") ? "wss" : "ws";
   return `${proto}://${host}`;
@@ -59,10 +68,36 @@ function buildXtermTheme(t) {
   };
 }
 
-// --- Session persistence via chrome.storage ---
+// --- Storage: chrome.storage in extension, localStorage in web mode ---
+
+const storage = {
+  get(key) {
+    if (IS_EXTENSION) {
+      return new Promise((resolve) => {
+        chrome.storage.local.get(key, (r) => resolve(r[key] || null));
+      });
+    }
+    return Promise.resolve(localStorage.getItem(key));
+  },
+  set(key, value) {
+    if (IS_EXTENSION) {
+      return chrome.storage.local.set({ [key]: value });
+    }
+    localStorage.setItem(key, value);
+    return Promise.resolve();
+  },
+  remove(key) {
+    if (IS_EXTENSION) {
+      return chrome.storage.local.remove(key);
+    }
+    localStorage.removeItem(key);
+    return Promise.resolve();
+  },
+};
+
+// --- Session persistence ---
 
 function tabSessionKey() {
-  // Use URL hash as unique tab identifier, or generate one
   if (!location.hash) {
     location.hash = crypto.randomUUID().slice(0, 8);
   }
@@ -70,26 +105,19 @@ function tabSessionKey() {
 }
 
 function getSavedSessionId() {
-  return new Promise((resolve) => {
-    const key = tabSessionKey();
-    chrome.storage.local.get(key, (result) => resolve(result[key] || null));
-  });
+  return storage.get(tabSessionKey());
 }
 
 function saveSessionId(id) {
-  return chrome.storage.local.set({ [tabSessionKey()]: id });
+  return storage.set(tabSessionKey(), id);
 }
 
-// --- Auth token ---
-
 function getToken() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get("ghostty_token", (r) => resolve(r.ghostty_token || null));
-  });
+  return storage.get("ghostty_token");
 }
 
 function setToken(newToken) {
-  return chrome.storage.local.set({ ghostty_token: newToken });
+  return storage.set("ghostty_token", newToken);
 }
 
 // --- Main ---
@@ -212,8 +240,7 @@ async function main() {
       if (e.code === 4001) {
         statusText.textContent = "invalid token";
         term.write("\r\n\x1b[31mAuth failed. Check token.\x1b[0m\r\n");
-        // Clear bad token and prompt
-        chrome.storage.local.remove("ghostty_token");
+        storage.remove("ghostty_token");
         return;
       }
       statusText.textContent = "disconnected — reconnecting...";

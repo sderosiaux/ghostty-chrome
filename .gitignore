@@ -1,6 +1,8 @@
 node_modules/
 .token
 .backend.pid
+.tunnel.pid
+.tunnel.log
 extension/terminal.js
 extension/terminal.js.map
 extension/xterm.css

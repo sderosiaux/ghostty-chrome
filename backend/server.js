@@ -1,9 +1,15 @@
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
+import { readFileSync, existsSync } from "fs";
+import { join, extname } from "path";
+import { fileURLToPath } from "url";
 import { spawn } from "node-pty";
 import { randomBytes } from "crypto";
 import { homedir } from "os";
 import { parseGhosttyConfig } from "./config-parser.js";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const STATIC_DIR = join(__dirname, "..", "extension");
 
 const PORT = parseInt(process.env.PORT || "7681", 10);
 const AUTH_TOKEN = process.env.GHOSTTY_TOKEN || randomBytes(24).toString("hex");
@@ -99,6 +105,34 @@ const server = createServer((req, res) => {
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, sessions: sessions.size }));
+    return;
+  }
+
+  // Serve extension static files (web mode for tunnel guests)
+  const MIME = {
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".map": "application/json",
+  };
+
+  const filePath = url.pathname === "/"
+    ? join(STATIC_DIR, "terminal.html")
+    : join(STATIC_DIR, url.pathname);
+
+  // Prevent path traversal
+  if (!filePath.startsWith(STATIC_DIR)) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
+
+  if (existsSync(filePath)) {
+    const mime = MIME[extname(filePath)] || "application/octet-stream";
+    res.writeHead(200, { "Content-Type": mime });
+    res.end(readFileSync(filePath));
     return;
   }
 
