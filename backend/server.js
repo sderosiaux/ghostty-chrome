@@ -120,6 +120,12 @@ const MIME = {
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
 
+  // CORS: allow chrome-extension:// and tunnel origins
+  const origin = req.headers.origin || "";
+  if (origin.startsWith("chrome-extension://") || origin.includes("trycloudflare.com")) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
   if (url.pathname === "/config") {
     const t = url.searchParams.get("token");
     if (t !== AUTH_TOKEN) {
