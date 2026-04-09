@@ -62,16 +62,6 @@ Each tab is a terminal. Click **share** in the status bar to stream any tab read
 - Guests cannot create sessions or list other sessions
 - Auth token is stripped from the shell environment
 
-## Roadmap
-
-- [x] `./start.sh stream` — one command to go live
-- [x] Read-only sharing via Cloudflare tunnel
-- [x] Scoped guest tokens (HMAC, per-session)
-- [x] Chrome extension with session persistence
-- [ ] Viewer count in status bar
-- [ ] Session picker
-- [ ] Theme import from Ghostty/terminal config
-
 ## License
 
 MIT
