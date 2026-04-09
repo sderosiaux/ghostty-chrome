@@ -58,7 +58,8 @@ Sharing exposes a read-only view, nothing more.
 - [x] Terminal in Chrome tabs with session persistence
 - [x] One-click read-only streaming via Cloudflare tunnel
 - [x] Scoped guest tokens (HMAC, per-session)
-- [x] Theme import from Ghostty config (font, colors)
+- [x] Font import from Ghostty config
+- [ ] Theme import from Ghostty config (named themes like Catppuccin)
 - [ ] Viewer count in status bar
 - [ ] Session picker
 - [ ] launchd daemon for auto-start
