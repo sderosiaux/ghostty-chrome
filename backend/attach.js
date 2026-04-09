@@ -51,15 +51,21 @@ ws.on("message", async (raw) => {
       process.stdout.write(msg.data);
       break;
     case "exit":
-      process.exit(msg.code || 0);
+      exit(msg.code || 0);
       break;
   }
 });
 
-ws.on("close", () => process.exit(0));
+function exit(code) {
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  process.stderr.write("\x1b[90mstream ended\x1b[0m\n");
+  process.exit(code);
+}
+
+ws.on("close", () => exit(0));
 ws.on("error", (e) => {
   process.stderr.write(`connection error: ${e.message}\n`);
-  process.exit(1);
+  exit(1);
 });
 
 if (process.stdin.isTTY) {
