@@ -34,9 +34,11 @@ function wsBase() {
 
 // --- Config & Theme ---
 
-async function loadConfig() {
+async function loadConfig(authToken) {
   try {
-    const res = await fetch(`${httpBase()}/config`);
+    const url = authToken ? `${httpBase()}/config?token=${encodeURIComponent(authToken)}` : `${httpBase()}/config`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
     return await res.json();
   } catch {
     return null;
@@ -134,10 +136,15 @@ function getUrlParams() {
 // --- Main ---
 
 async function main() {
-  const config = await loadConfig();
+  const urlParams = getUrlParams();
+  const isGuest = Boolean(urlParams.session);
+
+  // Get token early so we can auth the config request
+  const earlyToken = urlParams.token || await getToken();
+  // Config only available to owners (requires owner token)
+  const config = isGuest ? null : await loadConfig(earlyToken);
   const theme = config?.theme;
   const font = config?.font;
-  const urlParams = getUrlParams();
 
   if (theme) {
     document.documentElement.style.setProperty("--bg", theme.background);
@@ -192,14 +199,9 @@ async function main() {
   const modeEl = document.getElementById("mode");
   const shareBtn = document.getElementById("share-btn");
 
-  // Is this a guest joining an existing session?
-  const isGuest = Boolean(urlParams.session);
   const guestSessionId = urlParams.session;
-  const guestMode = urlParams.mode;
 
-  // --- Token ---
-
-  // Accept token from URL (share links) or storage or prompt
+  // Token: guests get their token from the share URL, owners from storage/prompt
   const token = urlParams.token
     || await getToken()
     || await (async () => {
@@ -211,7 +213,8 @@ async function main() {
       return null;
     })();
 
-  if (urlParams.token) await setToken(urlParams.token);
+  // Only store owner tokens (never store guest tokens)
+  if (!isGuest && urlParams.token) await setToken(urlParams.token);
 
   if (!token) {
     term.write("\r\n\x1b[31mNo auth token provided.\x1b[0m\r\n");
@@ -220,7 +223,8 @@ async function main() {
 
   const savedSession = isGuest ? null : await getSavedSessionId();
   let currentSessionId = null;
-  let currentMode = isGuest ? guestMode : "rw";
+  let currentGuestToken = null;
+  let currentMode = isGuest ? "ro" : "rw";
 
   function updateStatusMode() {
     if (modeEl) {
@@ -236,19 +240,18 @@ async function main() {
     }
   }
 
-  function buildShareUrl(mode) {
+  function buildShareUrl() {
     const base = httpBase();
     const params = new URLSearchParams({
       session: currentSessionId,
-      mode,
-      token,
+      token: currentGuestToken,
     });
     return `${base}/?${params}`;
   }
 
   if (shareBtn) {
     shareBtn.addEventListener("click", () => {
-      const url = buildShareUrl("ro");
+      const url = buildShareUrl();
       navigator.clipboard.writeText(url).then(() => {
         shareBtn.textContent = "copied!";
         setTimeout(() => { shareBtn.textContent = "share"; }, 2000);
@@ -266,11 +269,9 @@ async function main() {
       statusText.textContent = "connected";
 
       if (isGuest) {
-        // Guest: attach to the shared session
         ws.send(JSON.stringify({
           type: "attach",
           id: guestSessionId,
-          mode: guestMode,
           cols: term.cols,
           rows: term.rows,
         }));
@@ -295,6 +296,7 @@ async function main() {
         case "session":
           currentSessionId = msg.id;
           currentMode = msg.mode || "rw";
+          if (msg.guestToken) currentGuestToken = msg.guestToken;
           saveSessionId(msg.id);
           sessionIdEl.textContent = msg.id;
           updateStatusMode();

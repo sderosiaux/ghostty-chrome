@@ -1,33 +1,50 @@
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
 import { readFileSync, existsSync } from "fs";
-import { join, extname } from "path";
+import { join, extname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { spawn } from "node-pty";
-import { randomBytes } from "crypto";
+import { randomBytes, createHmac } from "crypto";
 import { homedir } from "os";
 import { parseGhosttyConfig } from "./config-parser.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const STATIC_DIR = join(__dirname, "..", "extension");
+const STATIC_DIR = resolve(join(__dirname, "..", "extension"));
 
 const PORT = parseInt(process.env.PORT || "7681", 10);
 const AUTH_TOKEN = process.env.GHOSTTY_TOKEN || randomBytes(24).toString("hex");
 
-// Session store: keeps PTY alive even when client disconnects
+// Strip sensitive vars from PTY environment
+const { GHOSTTY_TOKEN: _stripped, ...safeEnv } = process.env;
+
+// Session store
 const sessions = new Map();
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 const ghosttyConfig = parseGhosttyConfig();
 const defaultShell = ghosttyConfig.shell || process.env.SHELL || "/bin/zsh";
 
-function createSession(id, cols = 120, rows = 30) {
+// --- Guest token: HMAC(ownerToken, sessionId) scoped to one session, read-only ---
+
+function generateGuestToken(sessionId) {
+  return createHmac("sha256", AUTH_TOKEN).update(sessionId).digest("hex").slice(0, 32);
+}
+
+function verifyGuestToken(guestToken, sessionId) {
+  return guestToken === generateGuestToken(sessionId);
+}
+
+// --- Session management ---
+
+function createSession(cols = 120, rows = 30) {
+  const id = randomBytes(8).toString("hex");
+
   const pty = spawn(defaultShell, [], {
     name: "xterm-256color",
     cols,
     rows,
     cwd: homedir(),
-    env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
+    env: { ...safeEnv, TERM: "xterm-256color", COLORTERM: "truecolor" },
   });
 
   const session = {
@@ -88,15 +105,27 @@ setInterval(() => {
   }
 }, 60_000);
 
-// Single HTTP server — serves config + WebSocket upgrade on same port
+// --- HTTP server ---
+
+const MIME = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".map": "application/json",
+};
+
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
 
-  // CORS for tunnel access
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET");
-
   if (url.pathname === "/config") {
+    const t = url.searchParams.get("token");
+    if (t !== AUTH_TOKEN) {
+      res.writeHead(401);
+      res.end();
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(ghosttyConfig));
     return;
@@ -104,35 +133,26 @@ const server = createServer((req, res) => {
 
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true, sessions: sessions.size }));
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
-  // Serve extension static files (web mode for tunnel guests)
-  const MIME = {
-    ".html": "text/html",
-    ".js": "text/javascript",
-    ".css": "text/css",
-    ".png": "image/png",
-    ".svg": "image/svg+xml",
-    ".map": "application/json",
-  };
-
+  // Serve static files for web guests
   const filePath = url.pathname === "/"
     ? join(STATIC_DIR, "terminal.html")
     : join(STATIC_DIR, url.pathname);
 
-  // Prevent path traversal
-  if (!filePath.startsWith(STATIC_DIR)) {
+  const resolved = resolve(filePath);
+  if (!resolved.startsWith(STATIC_DIR)) {
     res.writeHead(403);
     res.end();
     return;
   }
 
-  if (existsSync(filePath)) {
-    const mime = MIME[extname(filePath)] || "application/octet-stream";
+  if (existsSync(resolved)) {
+    const mime = MIME[extname(resolved)] || "application/octet-stream";
     res.writeHead(200, { "Content-Type": mime });
-    res.end(readFileSync(filePath));
+    res.end(readFileSync(resolved));
     return;
   }
 
@@ -140,23 +160,26 @@ const server = createServer((req, res) => {
   res.end();
 });
 
-// WebSocket on the same HTTP server (upgrade)
-const wss = new WebSocketServer({ server });
+// --- WebSocket ---
+
+const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
 
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
   const token = url.searchParams.get("token");
+  const guestSessionId = url.searchParams.get("session");
 
-  if (token !== AUTH_TOKEN) {
+  // Auth: either owner token, or valid guest token for a specific session
+  const isOwner = token === AUTH_TOKEN && !guestSessionId;
+  const isGuest = Boolean(guestSessionId) && verifyGuestToken(token, guestSessionId);
+
+  if (!isOwner && !isGuest) {
     ws.close(4001, "Unauthorized");
     return;
   }
 
-  // Guest detection: ?session= in the WS URL means this is a guest join
-  const isGuest = url.searchParams.has("session");
-
   let session = null;
-  let readonly = false;
+  const readonly = isGuest; // Guests are ALWAYS read-only, server-enforced
 
   ws.on("message", (raw) => {
     let msg;
@@ -169,41 +192,50 @@ wss.on("connection", (ws, req) => {
     switch (msg.type) {
       case "new": {
         if (isGuest) {
-          ws.send(JSON.stringify({ type: "error", message: "guests cannot create sessions" }));
+          ws.send(JSON.stringify({ type: "error", message: "forbidden" }));
           ws.close(4003, "Forbidden");
           break;
         }
-        const id = randomBytes(8).toString("hex");
-        session = createSession(id, msg.cols || 120, msg.rows || 30);
-        readonly = false;
+        session = createSession(msg.cols || 120, msg.rows || 30);
         attachClient(ws, session);
-        ws.send(JSON.stringify({ type: "session", id, mode: "rw" }));
+        ws.send(JSON.stringify({
+          type: "session",
+          id: session.id,
+          mode: "rw",
+          guestToken: generateGuestToken(session.id),
+        }));
         break;
       }
 
       case "attach": {
-        session = sessions.get(msg.id);
+        const targetId = isGuest ? guestSessionId : msg.id;
+        session = sessions.get(targetId);
+
         if (!session) {
           if (isGuest) {
-            // Guest cannot create sessions — session expired or invalid
             ws.send(JSON.stringify({ type: "error", message: "session not found" }));
             ws.close(4004, "Session not found");
             break;
           }
-          // Owner reconnecting to expired session — create fresh
-          session = createSession(msg.id, msg.cols || 120, msg.rows || 30);
+          // Owner reconnecting to expired session — fresh shell, new random ID
+          session = createSession(msg.cols || 120, msg.rows || 30);
         }
-        readonly = isGuest ? msg.mode !== "rw" : false;
+
         attachClient(ws, session);
-        ws.send(JSON.stringify({ type: "session", id: session.id, mode: readonly ? "ro" : "rw" }));
+        const response = {
+          type: "session",
+          id: session.id,
+          mode: readonly ? "ro" : "rw",
+        };
+        if (isOwner) {
+          response.guestToken = generateGuestToken(session.id);
+        }
+        ws.send(JSON.stringify(response));
         break;
       }
 
       case "input": {
-        if (readonly) {
-          ws.send(JSON.stringify({ type: "error", message: "read-only session" }));
-          break;
-        }
+        if (readonly) break; // silently drop, no error spam
         if (session) session.pty.write(msg.data);
         break;
       }
@@ -236,8 +268,7 @@ wss.on("connection", (ws, req) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`ghostty-chrome backend`);
-  console.log(`  http://127.0.0.1:${PORT} (config + websocket)`);
+  console.log(`  http://127.0.0.1:${PORT}`);
   console.log(`  token: ${AUTH_TOKEN}`);
   console.log(`  shell: ${defaultShell}`);
-  console.log(`  theme: ${ghosttyConfig.theme.background} / ${ghosttyConfig.theme.foreground}`);
 });
