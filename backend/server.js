@@ -152,7 +152,11 @@ wss.on("connection", (ws, req) => {
     return;
   }
 
+  // Guest detection: ?session= in the WS URL means this is a guest join
+  const isGuest = url.searchParams.has("session");
+
   let session = null;
+  let readonly = false;
 
   ws.on("message", (raw) => {
     let msg;
@@ -164,36 +168,55 @@ wss.on("connection", (ws, req) => {
 
     switch (msg.type) {
       case "new": {
+        if (isGuest) {
+          ws.send(JSON.stringify({ type: "error", message: "guests cannot create sessions" }));
+          ws.close(4003, "Forbidden");
+          break;
+        }
         const id = randomBytes(8).toString("hex");
         session = createSession(id, msg.cols || 120, msg.rows || 30);
+        readonly = false;
         attachClient(ws, session);
-        ws.send(JSON.stringify({ type: "session", id }));
+        ws.send(JSON.stringify({ type: "session", id, mode: "rw" }));
         break;
       }
 
       case "attach": {
         session = sessions.get(msg.id);
         if (!session) {
+          if (isGuest) {
+            // Guest cannot create sessions — session expired or invalid
+            ws.send(JSON.stringify({ type: "error", message: "session not found" }));
+            ws.close(4004, "Session not found");
+            break;
+          }
+          // Owner reconnecting to expired session — create fresh
           session = createSession(msg.id, msg.cols || 120, msg.rows || 30);
         }
+        readonly = isGuest ? msg.mode !== "rw" : false;
         attachClient(ws, session);
-        ws.send(JSON.stringify({ type: "session", id: session.id }));
+        ws.send(JSON.stringify({ type: "session", id: session.id, mode: readonly ? "ro" : "rw" }));
         break;
       }
 
       case "input": {
+        if (readonly) {
+          ws.send(JSON.stringify({ type: "error", message: "read-only session" }));
+          break;
+        }
         if (session) session.pty.write(msg.data);
         break;
       }
 
       case "resize": {
-        if (session && msg.cols && msg.rows) {
+        if (!readonly && session && msg.cols && msg.rows) {
           session.pty.resize(msg.cols, msg.rows);
         }
         break;
       }
 
       case "list": {
+        if (isGuest) break;
         const list = [...sessions.entries()].map(([id, s]) => ({
           id,
           alive: !s.pty.killed,

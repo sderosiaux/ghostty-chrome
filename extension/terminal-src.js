@@ -120,20 +120,30 @@ function setToken(newToken) {
   return storage.set("ghostty_token", newToken);
 }
 
+// --- URL params ---
+
+function getUrlParams() {
+  const params = new URLSearchParams(location.search);
+  return {
+    session: params.get("session"),             // join existing session
+    mode: params.get("mode") || "ro",           // ro (default for guests) or rw
+    token: params.get("token"),                 // token in URL for easy sharing
+  };
+}
+
 // --- Main ---
 
 async function main() {
   const config = await loadConfig();
   const theme = config?.theme;
   const font = config?.font;
+  const urlParams = getUrlParams();
 
-  // Apply background immediately
   if (theme) {
     document.documentElement.style.setProperty("--bg", theme.background);
   }
 
   const family = font?.family || "JetBrains Mono";
-  // Quote font names for CSS, append monospace fallbacks
   const fontFamily = `'${family}', 'Fira Code', 'SF Mono', Menlo, monospace`;
 
   const term = new Terminal({
@@ -155,12 +165,10 @@ async function main() {
 
   const container = document.getElementById("terminal");
 
-  // Wait for font to load before opening terminal (prevents cell metric mismatch)
   await document.fonts.load(`${font?.size || 14}px ${fontFamily}`).catch(() => {});
 
   term.open(container);
 
-  // WebGL renderer — load after font is ready
   try {
     const webglAddon = new WebglAddon();
     webglAddon.onContextLoss(() => webglAddon.dispose());
@@ -172,45 +180,111 @@ async function main() {
   fitAddon.fit();
   window.addEventListener("resize", () => fitAddon.fit());
 
-  // Update page title with shell activity
   term.onTitleChange((title) => {
     document.title = title || "Terminal";
   });
 
-  // --- WebSocket connection ---
+  // --- Status bar ---
 
   const statusEl = document.getElementById("status");
   const statusText = document.getElementById("status-text");
   const sessionIdEl = document.getElementById("session-id");
+  const modeEl = document.getElementById("mode");
+  const shareBtn = document.getElementById("share-btn");
 
-  const storedToken = await getToken();
+  // Is this a guest joining an existing session?
+  const isGuest = Boolean(urlParams.session);
+  const guestSessionId = urlParams.session;
+  const guestMode = urlParams.mode;
 
-  const token = storedToken ?? await (async () => {
-    const t = prompt("Paste the auth token from the ghostty-chrome backend output:");
-    if (t) {
-      await setToken(t.trim());
-      return t.trim();
-    }
-    return null;
-  })();
+  // --- Token ---
+
+  // Accept token from URL (share links) or storage or prompt
+  const token = urlParams.token
+    || await getToken()
+    || await (async () => {
+      const t = prompt("Paste the auth token:");
+      if (t) {
+        await setToken(t.trim());
+        return t.trim();
+      }
+      return null;
+    })();
+
+  if (urlParams.token) await setToken(urlParams.token);
 
   if (!token) {
-    term.write("\r\n\x1b[31mNo auth token provided. Start the backend and reload.\x1b[0m\r\n");
+    term.write("\r\n\x1b[31mNo auth token provided.\x1b[0m\r\n");
     return;
   }
 
-  const savedSession = await getSavedSessionId();
+  const savedSession = isGuest ? null : await getSavedSessionId();
+  let currentSessionId = null;
+  let currentMode = isGuest ? guestMode : "rw";
+
+  function updateStatusMode() {
+    if (modeEl) {
+      modeEl.textContent = currentMode === "ro" ? "read-only" : "read-write";
+      modeEl.className = currentMode === "ro" ? "mode-ro" : "mode-rw";
+    }
+    if (shareBtn) {
+      shareBtn.style.display = currentMode === "rw" ? "inline" : "none";
+    }
+    if (currentMode === "ro") {
+      term.options.disableStdin = true;
+      term.options.cursorBlink = false;
+    }
+  }
+
+  function buildShareUrl(mode) {
+    const base = httpBase();
+    const params = new URLSearchParams({
+      session: currentSessionId,
+      mode,
+      token,
+    });
+    return `${base}/?${params}`;
+  }
+
+  if (shareBtn) {
+    shareBtn.addEventListener("click", () => {
+      const url = buildShareUrl("ro");
+      navigator.clipboard.writeText(url).then(() => {
+        shareBtn.textContent = "copied!";
+        setTimeout(() => { shareBtn.textContent = "share"; }, 2000);
+      });
+    });
+  }
 
   function connect() {
-    const ws = new WebSocket(`${wsBase()}?token=${encodeURIComponent(token)}`);
+    const wsParams = new URLSearchParams({ token });
+    if (isGuest) wsParams.set("session", guestSessionId);
+    const ws = new WebSocket(`${wsBase()}?${wsParams}`);
 
     ws.onopen = () => {
       statusEl.className = "";
       statusText.textContent = "connected";
 
-      if (savedSession) {
-        ws.send(JSON.stringify({ type: "attach", id: savedSession, cols: term.cols, rows: term.rows }));
+      if (isGuest) {
+        // Guest: attach to the shared session
+        ws.send(JSON.stringify({
+          type: "attach",
+          id: guestSessionId,
+          mode: guestMode,
+          cols: term.cols,
+          rows: term.rows,
+        }));
+      } else if (savedSession) {
+        // Owner: reconnect to own session
+        ws.send(JSON.stringify({
+          type: "attach",
+          id: savedSession,
+          mode: "rw",
+          cols: term.cols,
+          rows: term.rows,
+        }));
       } else {
+        // Owner: new session
         ws.send(JSON.stringify({ type: "new", cols: term.cols, rows: term.rows }));
       }
     };
@@ -219,14 +293,20 @@ async function main() {
       const msg = JSON.parse(event.data);
       switch (msg.type) {
         case "session":
+          currentSessionId = msg.id;
+          currentMode = msg.mode || "rw";
           saveSessionId(msg.id);
           sessionIdEl.textContent = msg.id;
+          updateStatusMode();
           break;
         case "output":
           term.write(msg.data);
           break;
         case "scrollback":
           term.write(msg.data);
+          break;
+        case "error":
+          term.write(`\r\n\x1b[33m[${msg.message}]\x1b[0m`);
           break;
         case "exit":
           term.write(`\r\n\x1b[90m[process exited: ${msg.code}]\x1b[0m\r\n`);
@@ -251,17 +331,14 @@ async function main() {
       statusText.textContent = "connection error";
     };
 
-    // Terminal input → WebSocket
     term.onData((data) => {
       if (ws.readyState === 1) ws.send(JSON.stringify({ type: "input", data }));
     });
 
-    // Resize events
     term.onResize(({ cols, rows }) => {
       if (ws.readyState === 1) ws.send(JSON.stringify({ type: "resize", cols, rows }));
     });
 
-    // Re-fit on resize
     new ResizeObserver(() => fitAddon.fit()).observe(container);
   }
 
