@@ -1,6 +1,5 @@
 #!/bin/bash
-# Twitch Terminal — launcher
-# Stream your terminal. Like Twitch, for shells.
+# Twitch Terminal — Stream your terminal. Like Twitch, for shells.
 
 set -uo pipefail
 
@@ -40,6 +39,11 @@ stop_tunnel() {
   fi
 }
 
+cleanup() {
+  stop_tunnel
+  stop_backend
+}
+
 ensure_token() {
   if [ ! -f "$TOKEN_FILE" ]; then
     openssl rand -hex 24 > "$TOKEN_FILE"
@@ -49,12 +53,11 @@ ensure_token() {
 
 start_backend() {
   stop_backend
-
   local token
   token=$(ensure_token)
 
   cd "$BACKEND_DIR" || exit 1
-  TWITCH_TERMINAL_TOKEN="$token" PORT="$PORT" node server.js &
+  TWITCH_TERMINAL_TOKEN="$token" PORT="$PORT" node server.js > /dev/null 2>&1 &
   echo "$!" > "$PID_FILE"
 
   local _i
@@ -72,153 +75,87 @@ start_tunnel() {
   stop_tunnel
 
   if ! command -v cloudflared &> /dev/null; then
-    echo -e "${YELLOW}cloudflared not found. Install: brew install cloudflare/cloudflare/cloudflared${NC}" >&2
+    echo -e "${YELLOW}cloudflared not found. brew install cloudflare/cloudflare/cloudflared${NC}" >&2
     return 1
   fi
 
   local tunnel_log="$DIR/.tunnel.log"
   : > "$tunnel_log"
-
   cloudflared tunnel --url "http://127.0.0.1:${PORT}" --no-autoupdate 2>"$tunnel_log" &
   echo "$!" > "$TUNNEL_PID_FILE"
 
-  local tunnel_url=""
-  local _i
+  local tunnel_url="" _i
   for _i in $(seq 1 30); do
     tunnel_url=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$tunnel_log" 2>/dev/null | head -1 || true)
-    if [ -n "$tunnel_url" ]; then
-      break
-    fi
+    if [ -n "$tunnel_url" ]; then break; fi
     sleep 1
   done
 
   if [ -z "$tunnel_url" ]; then
-    echo -e "${YELLOW}tunnel failed to start${NC}" >&2
+    echo -e "${YELLOW}tunnel failed${NC}" >&2
     return 1
   fi
 
   local token
   token=$(cat "$TOKEN_FILE")
   curl -sS "http://127.0.0.1:${PORT}/set-tunnel?token=${token}&url=${tunnel_url}" > /dev/null
-
-  echo "$tunnel_url"
+  echo -e "${GREEN}tunnel${NC}: $tunnel_url" >&2
 }
 
-# Print the share URL for a session (guest token, read-only)
-share_url() {
-  local session_id="$1"
-  local token tunnel_url guest_token
-  token=$(cat "$TOKEN_FILE")
-
-  tunnel_url=$(curl -sS "http://127.0.0.1:${PORT}/tunnel?token=${token}" 2>/dev/null | node -e "process.stdin.on('data',d=>{const j=JSON.parse(d);process.stdout.write(j.url||'')})" 2>/dev/null || true)
-
-  # Get guest token from backend
-  guest_token=$(node -e "
-    const {createHmac}=require('crypto');
-    process.stdout.write(createHmac('sha256','${token}').update('${session_id}').digest('hex').slice(0,32));
-  ")
-
-  local base="${tunnel_url:-http://127.0.0.1:${PORT}}"
-  echo "${base}/?session=${session_id}&token=${guest_token}"
-}
-
-cleanup() {
-  stop_tunnel
-  stop_backend
+wait_forever() {
+  echo -e "${DIM}Ctrl+C to stop${NC}"
+  local backend_pid
+  backend_pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
+  if [ -n "$backend_pid" ]; then wait "$backend_pid" 2>/dev/null || true
+  else while true; do sleep 3600; done; fi
 }
 
 # --- Commands ---
+
+cmd_stream() {
+  trap cleanup EXIT INT TERM
+  start_backend
+  echo -e "${DIM}starting tunnel...${NC}" >&2
+  start_tunnel || true
+  echo "" >&2
+
+  local token
+  token=$(cat "$TOKEN_FILE")
+  node "$BACKEND_DIR/attach.js" "$PORT" "$token"
+}
 
 cmd_start() {
   trap cleanup EXIT INT TERM
   start_backend
   echo -e "${GREEN}backend running${NC} (port $PORT)"
-  echo -e "Load the extension: ${DIM}chrome://extensions → Load unpacked → ./extension/${NC}"
-  echo -e "${DIM}Press Ctrl+C to stop${NC}"
-  local backend_pid
-  backend_pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
-  if [ -n "$backend_pid" ]; then wait "$backend_pid" 2>/dev/null || true; fi
-}
-
-cmd_stream() {
-  trap cleanup EXIT INT TERM
-  start_backend
-
-  local tunnel_url
-  echo -e "${DIM}starting tunnel...${NC}" >&2
-  tunnel_url=$(start_tunnel)
-
-  if [ -z "$tunnel_url" ]; then
-    echo -e "${YELLOW}tunnel failed — streaming locally only${NC}" >&2
-  else
-    echo -e "${GREEN}tunnel${NC}: $tunnel_url" >&2
-  fi
-
-  echo "" >&2
-  echo -e "${GREEN}Launching terminal — you're live.${NC}" >&2
-  echo -e "${DIM}Share URL will be printed once connected. Ctrl+D to exit.${NC}" >&2
-  echo "" >&2
-
-  local token session_id
-  token=$(cat "$TOKEN_FILE")
-
-  # Capture session ID from attach.js stderr, display share URL
-  local session_id_file
-  session_id_file=$(mktemp)
-
-  # Run attach.js — it prints session:<id> to stderr
-  node "$BACKEND_DIR/attach.js" "$PORT" "$token" 2> >(
-    while IFS= read -r line; do
-      if [[ "$line" == session:* ]]; then
-        session_id="${line#session:}"
-        echo "$session_id" > "$session_id_file"
-        local url
-        url=$(share_url "$session_id")
-        echo -e "\r${GREEN}share url${NC}: $url" >&2
-        echo -e "${DIM}Send this to viewers — read-only, no install needed${NC}\n" >&2
-      else
-        echo "$line" >&2
-      fi
-    done
-  )
-
-  rm -f "$session_id_file"
+  echo -e "Extension: ${DIM}chrome://extensions → Load unpacked → ./extension/${NC}"
+  wait_forever
 }
 
 cmd_share() {
   trap cleanup EXIT INT TERM
   start_backend
-  local tunnel_url
-  tunnel_url=$(start_tunnel)
-  echo -e "${GREEN}tunnel active${NC}: $tunnel_url"
+  echo -e "${GREEN}backend running${NC} (port $PORT)"
+  echo -e "${DIM}starting tunnel...${NC}"
+  start_tunnel || true
   echo ""
-  echo -e "Use the ${GREEN}share${NC} button in the extension status bar to get a viewer URL."
-  echo ""
+  echo -e "Click ${GREEN}share${NC} in the extension status bar to get a viewer URL."
   echo -e "${YELLOW}DO NOT share the owner token or the raw tunnel URL${NC}"
-  echo -e "${DIM}Press Ctrl+C to stop${NC}"
-  local backend_pid
-  backend_pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
-  if [ -n "$backend_pid" ]; then wait "$backend_pid" 2>/dev/null || true; fi
+  wait_forever
 }
 
-cmd_stop() {
-  stop_tunnel
-  stop_backend
-  echo -e "${DIM}stopped${NC}"
-}
-
-case "${1:-start}" in
-  start)   cmd_start ;;
+case "${1:-stream}" in
   stream)  cmd_stream ;;
+  start)   cmd_start ;;
   share)   cmd_share ;;
-  stop)    cmd_stop ;;
+  stop)    stop_tunnel; stop_backend; echo -e "${DIM}stopped${NC}" ;;
   token)   [ -f "$TOKEN_FILE" ] && cat "$TOKEN_FILE" || echo "No token." ;;
   *)
     echo "Usage: $0 {stream|start|share|stop|token}"
     echo ""
-    echo "  stream — launch a streamable terminal (no Chrome needed)"
+    echo "  stream — stream your terminal (default, no Chrome needed)"
     echo "  start  — backend only (for Chrome extension)"
-    echo "  share  — backend + tunnel (for Chrome extension + sharing)"
+    echo "  share  — backend + tunnel (for Chrome extension)"
     echo "  stop   — kill everything"
     echo "  token  — print auth token"
     ;;
