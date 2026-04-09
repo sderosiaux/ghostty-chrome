@@ -56,11 +56,10 @@ Each tab is a terminal. Click **share** in the status bar to stream any tab read
 
 ## Security
 
-- Viewers get a scoped guest token (HMAC-derived, one session only)
-- Owner token is never in the share URL
-- Read-only is server-enforced — input silently dropped
-- Guests cannot create sessions or list other sessions
-- Auth token is stripped from the shell environment
+- Share URLs contain a scoped viewer token — works for one session only, read-only
+- Your master token never leaves your machine
+- Read-only is server-enforced — viewer input is silently dropped
+- Viewers cannot create sessions or see other sessions
 
 ## License
 
