@@ -4,21 +4,34 @@
 
 Stream your terminal. Watch AI agents work. Like Twitch, for shells.
 
-> One click to broadcast a read-only view of your terminal to anyone with a browser. No install, no screen share, no lag. They see exactly what you see — raw terminal output over WebSocket.
+## Stream in one command
 
-## Why
+```bash
+./start.sh stream
+```
 
-You're running Claude Code, Codex, or Aider. Your colleague wants to watch. Screen sharing compresses everything into blurry video at 2fps. Instead: click **share**, send the URL, they open it and see your terminal live — crisp text, zero lag, read-only by default.
+```
+share: https://farm-biblical-nut-yamaha.trycloudflare.com/?session=3ff37469&token=f9f638901
+➜  ~
+```
 
-Or you kick off a long agent session, leave your desk. Pull out your phone, open the URL, monitor it from anywhere.
+You're in a normal shell. Work as usual — run Claude Code, Codex, Aider, whatever. Send the share URL to anyone. They open it in their browser and watch your terminal live. Read-only, no install, no screen share.
+
+`Ctrl+D` when you're done.
+
+## Why not screen share?
+
+There's no video. No frame encoding. No pixels. The stream is raw text — ANSI escape sequences over a WebSocket. A typical session is a few bytes per keystroke. Hundreds of viewers cost less bandwidth than one Google Meet call. The viewer's browser renders text locally — crisp at any resolution, instant at any distance.
+
+## Use cases
 
 - Watch how someone works with AI agents in real time
-- Monitor long-running agent sessions remotely
-- Pair-debug without screen sharing — raw terminal, not compressed video
+- Monitor a long-running agent session from your phone
+- Pair-debug without screen sharing lag
 - Live demo a CLI tool without everyone SSHing in
 - Onboard devs by streaming how you navigate a codebase
 
-## Quick start
+## Install
 
 ```bash
 git clone https://github.com/sderosiaux/twitch-terminal.git
@@ -26,55 +39,37 @@ cd twitch-terminal
 npm install && cd backend && npm install && cd ../extension && npm install && node build.js && cd ..
 ```
 
-### Stream from your terminal (no Chrome needed)
+Requires [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) for sharing (free, no account needed).
 
-```bash
-./start.sh stream
-```
+## Chrome extension (optional)
 
-That's it. A streamable shell launches in your current terminal. The share URL is printed — send it to anyone. They watch in their browser, read-only.
-
-### Or use Chrome tabs
+For personal use: run terminals inside Chrome tabs. Get tab pinning, tab groups, split panes, Ctrl+Shift+T to reopen, bookmarks — Chrome's tab management for your terminals.
 
 ```bash
 ./start.sh share    # backend + tunnel
 ```
 
-Load the extension: `chrome://extensions` → Developer mode → Load unpacked → `./extension/`. Click **share** in the status bar to get a viewer URL.
+Load the extension: `chrome://extensions` → Developer mode → Load unpacked → `./extension/`
 
-## How it works
-
-1. `./start.sh stream` — starts backend + Cloudflare tunnel + drops you into a streamed shell
-2. Share URL is printed — send it to anyone
-3. Viewers open the URL in any browser, no install needed
-4. They see your terminal live, can't type
-
-`Ctrl+D` exits the stream. `./start.sh stop` kills everything.
-
-## Not a screen share
-
-There's no video, no frame encoding, no pixels. The stream is raw text — ANSI escape sequences over a WebSocket. A typical terminal session is a few bytes per keystroke, a few KB for a verbose build log. Hundreds of viewers watching the same session cost less bandwidth than a single Google Meet call. The viewer's browser renders the text locally via xterm.js — crisp at any resolution, instant at any distance.
+Each tab is a terminal. Click **share** in the status bar to stream any tab read-only.
 
 ## Security
 
-Sharing exposes a read-only view, nothing more.
-
-- Guest tokens are HMAC-derived, scoped to a single session
+- Viewers get a scoped guest token (HMAC-derived, one session only)
 - Owner token is never in the share URL
-- Read-only is server-enforced — crafted WebSocket messages are silently dropped
-- Guests cannot create sessions, list sessions, or resize the terminal
+- Read-only is server-enforced — input silently dropped
+- Guests cannot create sessions or list other sessions
 - Auth token is stripped from the shell environment
 
 ## Roadmap
 
-- [x] Terminal in Chrome tabs with session persistence
-- [x] One-click read-only streaming via Cloudflare tunnel
+- [x] `./start.sh stream` — one command to go live
+- [x] Read-only sharing via Cloudflare tunnel
 - [x] Scoped guest tokens (HMAC, per-session)
-- [x] Font import from Ghostty config
-- [ ] Theme import from Ghostty config (named themes like Catppuccin)
+- [x] Chrome extension with session persistence
 - [ ] Viewer count in status bar
 - [ ] Session picker
-- [ ] launchd daemon for auto-start
+- [ ] Theme import from Ghostty/terminal config
 
 ## License
 
