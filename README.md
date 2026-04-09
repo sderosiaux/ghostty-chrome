@@ -1,5 +1,7 @@
 # Ghostty Chrome
 
+![Ghostty Chrome](screenshot.png)
+
 Your terminal, in Chrome tabs. Powered by [xterm.js](https://xtermjs.org/) and [node-pty](https://github.com/microsoft/node-pty).
 
 > **Why?** Chrome is the best tab manager ever built — pinning, grouping, Ctrl+Shift+T to reopen, bookmarks, cross-device sync. This project puts a real terminal inside each tab so you get all of that for free.
