@@ -57,13 +57,13 @@ start_backend() {
   local token
   token=$(cat "$TOKEN_FILE")
 
-  cd "$BACKEND_DIR"
+  cd "$BACKEND_DIR" || exit 1
   GHOSTTY_TOKEN="$token" PORT="$PORT" node server.js &
   echo "$!" > "$PID_FILE"
 
   # Wait for backend to be ready
-  local i
-  for i in $(seq 1 20); do
+  local _i
+  for _i in $(seq 1 20); do
     if curl -sS "http://127.0.0.1:${PORT}/health" > /dev/null 2>&1; then
       break
     fi
@@ -92,8 +92,8 @@ start_tunnel() {
   echo -e "${DIM}waiting for tunnel...${NC}"
 
   local tunnel_url=""
-  local i
-  for i in $(seq 1 30); do
+  local _i
+  for _i in $(seq 1 30); do
     tunnel_url=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$tunnel_log" 2>/dev/null | head -1 || true)
     if [ -n "$tunnel_url" ]; then
       break

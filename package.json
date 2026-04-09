@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "eslint .",
+    "lint": "eslint . && shellcheck *.sh",
     "lint:fix": "eslint . --fix",
     "prepare": "husky"
   },
@@ -16,6 +16,7 @@
     "lint-staged": "^15.2.0"
   },
   "lint-staged": {
-    "*.js": "eslint --fix"
+    "*.js": "eslint --fix",
+    "*.sh": "shellcheck"
   }
 }
