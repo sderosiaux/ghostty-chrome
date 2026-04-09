@@ -4,7 +4,7 @@
 
 Your terminal, in Chrome tabs. Powered by [xterm.js](https://xtermjs.org/) and [node-pty](https://github.com/microsoft/node-pty).
 
-> **Why?** Chrome is the best tab manager ever built — pinning, grouping, Ctrl+Shift+T to reopen, bookmarks, cross-device sync. This project puts a real terminal inside each tab so you get all of that for free.
+> **Why?** Chrome is the best tab manager ever built — pinning, tab grouping, split panes, Ctrl+Shift+T to reopen, bookmarks, cross-device sync. Your terminals get all of that for free. No need to reinvent tab management or split views — Chrome already does it better than any terminal app.
 
 > **Status**: The current MVP uses xterm.js to prove the concept works. The end goal is to compile [libghostty](https://github.com/ghostty-org/ghostty) (Zig) to WebAssembly — same VT parser, same rendering fidelity, running natively in the browser. xterm.js is the scaffolding, not the destination.
 
