@@ -49,7 +49,7 @@ const COLOR_MAP = {
   "palette = 15": "brightWhite",
 };
 
-export function parseGhosttyConfig() {
+export function parseTerminalConfig() {
   const config = { theme: { ...DEFAULT_THEME }, font: {}, shell: null };
 
   for (const p of CONFIG_PATHS) {

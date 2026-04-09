@@ -6,24 +6,24 @@ import { fileURLToPath } from "url";
 import { spawn } from "node-pty";
 import { randomBytes, createHmac } from "crypto";
 import { homedir } from "os";
-import { parseGhosttyConfig } from "./config-parser.js";
+import { parseTerminalConfig } from "./config-parser.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const STATIC_DIR = resolve(join(__dirname, "..", "extension"));
 
 const PORT = parseInt(process.env.PORT || "7681", 10);
-const AUTH_TOKEN = process.env.GHOSTTY_TOKEN || randomBytes(24).toString("hex");
+const AUTH_TOKEN = process.env.TWITCH_TERMINAL_TOKEN || randomBytes(24).toString("hex");
 let tunnelUrl = process.env.TUNNEL_URL || null;
 
 // Strip sensitive vars from PTY environment
-const { GHOSTTY_TOKEN: _stripped, ...safeEnv } = process.env;
+const { TWITCH_TERMINAL_TOKEN: _stripped, ...safeEnv } = process.env;
 
 // Session store
 const sessions = new Map();
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
-const ghosttyConfig = parseGhosttyConfig();
-const defaultShell = ghosttyConfig.shell || process.env.SHELL || "/bin/zsh";
+const terminalConfig = parseTerminalConfig();
+const defaultShell = terminalConfig.shell || process.env.SHELL || "/bin/zsh";
 
 // --- Guest token: HMAC(ownerToken, sessionId) scoped to one session, read-only ---
 
@@ -134,7 +134,7 @@ const server = createServer((req, res) => {
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(ghosttyConfig));
+    res.end(JSON.stringify(terminalConfig));
     return;
   }
 

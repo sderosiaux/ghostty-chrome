@@ -22,7 +22,7 @@ body {
   height: 100%;
 }
 
-/* xterm.js overrides for Ghostty feel */
+/* xterm.js overrides */
 .xterm {
   padding: 4px 8px;
 }

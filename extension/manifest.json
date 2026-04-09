@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Twitch Terminal",
   "version": "0.1.0",
-  "description": "Ghostty terminal emulator in Chrome tabs",
+  "description": "Stream your terminal — like Twitch, for shells",
   "permissions": ["storage", "tabs"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; connect-src 'self' ws://127.0.0.1:7681 http://127.0.0.1:7681 wss://*.trycloudflare.com https://*.trycloudflare.com"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Ghostty Chrome — launcher
+# Twitch Terminal — launcher
 # Starts the PTY backend and optionally a Cloudflare tunnel for sharing
 
 set -uo pipefail
@@ -58,7 +58,7 @@ start_backend() {
   token=$(cat "$TOKEN_FILE")
 
   cd "$BACKEND_DIR" || exit 1
-  GHOSTTY_TOKEN="$token" PORT="$PORT" node server.js &
+  TWITCH_TERMINAL_TOKEN="$token" PORT="$PORT" node server.js &
   echo "$!" > "$PID_FILE"
 
   # Wait for backend to be ready

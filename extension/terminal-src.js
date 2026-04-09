@@ -3,7 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 
 const DEFAULT_HOST = "127.0.0.1:7681";
-const SESSION_KEY_PREFIX = "ghostty_session_";
+const SESSION_KEY_PREFIX = "tt_session_";
 const IS_EXTENSION = typeof chrome !== "undefined" && chrome.storage?.local;
 
 // In web mode: use the page's own host. In extension mode: ?host= param or localhost.
@@ -115,11 +115,11 @@ function saveSessionId(id) {
 }
 
 function getToken() {
-  return storage.get("ghostty_token");
+  return storage.get("tt_token");
 }
 
 function setToken(newToken) {
-  return storage.set("ghostty_token", newToken);
+  return storage.set("tt_token", newToken);
 }
 
 // --- URL params ---
@@ -332,7 +332,7 @@ async function main() {
       if (e.code === 4001) {
         statusText.textContent = "invalid token";
         term.write("\r\n\x1b[31mAuth failed. Check token.\x1b[0m\r\n");
-        storage.remove("ghostty_token");
+        storage.remove("tt_token");
         return;
       }
       statusText.textContent = "disconnected — reconnecting...";
