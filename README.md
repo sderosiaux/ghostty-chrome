@@ -49,6 +49,8 @@ Requires [cloudflared](https://developers.cloudflare.com/cloudflare-one/connecti
 
 For personal use: run terminals inside Chrome tabs. Get tab pinning, tab groups, split panes, Ctrl+Shift+T to reopen, bookmarks — Chrome's tab management for your terminals.
 
+![Chrome extension](screenshot.png)
+
 ```bash
 ./start.sh          # backend only, local
 ./start.sh share    # backend + tunnel for sharing
