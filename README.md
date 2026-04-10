@@ -1,5 +1,9 @@
 # Twitch Terminal
 
+## Demo
+
+<sub>My terminal on the right, my Chrome on the left.</sub>
+
 https://github.com/user-attachments/assets/63d10761-7371-4f11-9bef-a6ca847bda80
 
 Stream your terminal. Watch AI agents work. Like Twitch, for shells.
